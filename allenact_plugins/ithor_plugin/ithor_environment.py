@@ -189,6 +189,7 @@ class IThorEnvironment(object):
             local_executable_path=self._local_thor_build,
             quality=self._quality,
             server_class=ai2thor.fifo_server.FifoServer,
+            platform=ai2thor.platform.CloudRendering
         )
 
         if (

@@ -1,6 +1,9 @@
 from math import ceil
 from typing import Dict, Any, List, Optional
 
+import ai2thor
+import os
+import glob
 import gym
 import numpy as np
 import torch
@@ -23,12 +26,15 @@ from allenact_plugins.ithor_plugin.ithor_sensors import (
     RGBSensorThor,
     GoalObjectTypeThorSensor,
 )
-from allenact_plugins.ithor_plugin.ithor_task_samplers import ObjectNavTaskSampler
-from allenact_plugins.ithor_plugin.ithor_tasks import ObjectNaviThorGridTask
+from projects.objectnav_baselines.experiments.robothor.objectnav_robothor_base import (
+    ObjectNavRoboThorBaseConfig,
+)
+from allenact_plugins.robothor_plugin.robothor_task_samplers import ObjectNavDatasetTaskSampler
+from allenact_plugins.robothor_plugin.robothor_tasks import ObjectNavTask
 from allenact_plugins.navigation_plugin.objectnav.models import ObjectNavActorCritic
 
 
-class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
+class ObjectNavRoboThorPPOExperimentConfig(ExperimentConfig):
     """A simple object navigation experiment in THOR.
 
     Training with PPO.
@@ -37,9 +43,13 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
     # A simple setting, train/valid/test are all the same single scene
     # and we're looking for a single object
     OBJECT_TYPES = ["Tomato"]
-    TRAIN_SCENES = ["FloorPlan1_physics"]
-    VALID_SCENES = ["FloorPlan1_physics"]
-    TEST_SCENES = ["FloorPlan1_physics"]
+    TRAIN_SCENES = ["FloorPlan13_physics"]
+    VALID_SCENES = ["FloorPlan13_physics"]
+    TEST_SCENES = ["FloorPlan13_physics"]
+
+    # Dataset Parameters
+    TRAIN_DATASET_DIR = "datasets/robothor-objectnav/train"
+    VAL_DATASET_DIR = "datasets/robothor-objectnav/val"
 
     # Setting up sensors and basic environment details
     SCREEN_SIZE = 224
@@ -54,16 +64,24 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
         "player_screen_height": SCREEN_SIZE,
         "player_screen_width": SCREEN_SIZE,
         "quality": "Very Low",
+        #"platform": ai2thor.platform.CloudRendering
+    }
+
+    REWARD_CONFIG = {
+        "step_penalty": -0.01,
+        "goal_success_reward": 10.0,
+        "failed_stop_reward": 0.0,
+        "shaping_weight": 1.0,
     }
 
     MAX_STEPS = 128
     ADVANCE_SCENE_ROLLOUT_PERIOD: Optional[int] = None
     VALID_SAMPLES_IN_SCENE = 10
-    TEST_SAMPLES_IN_SCENE = 100
+    TEST_SAMPLES_IN_SCENE = 10
 
     @classmethod
     def tag(cls):
-        return "ObjectNavThorPPO"
+        return "ObjectNavRoboThorPPO"
 
     @classmethod
     def training_pipeline(cls, **kwargs):
@@ -108,7 +126,7 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
         has_gpu = num_gpus != 0
 
         if mode == "train":
-            nprocesses = 20 if has_gpu else 4
+            nprocesses = 4 if has_gpu else 4
             gpu_ids = [0] if has_gpu else []
         elif mode == "valid":
             nprocesses = 1
@@ -125,7 +143,7 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
     def create_model(cls, **kwargs) -> nn.Module:
         return ObjectNavActorCritic(
             action_space=gym.spaces.Discrete(
-                len(ObjectNaviThorGridTask.class_action_names())
+                len(ObjectNavTask.class_action_names())
             ),
             observation_space=SensorSuite(cls.SENSORS).observation_spaces,
             rgb_uuid=cls.SENSORS[0].uuid,
@@ -137,7 +155,7 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
 
     @classmethod
     def make_sampler_fn(cls, **kwargs) -> TaskSampler:
-        return ObjectNavTaskSampler(**kwargs)
+        return ObjectNavDatasetTaskSampler(**kwargs)
 
     @staticmethod
     def _partition_inds(n: int, num_parts: int):
@@ -147,12 +165,23 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
 
     def _get_sampler_args_for_scene_split(
         self,
-        scenes: List[str],
+        scenes_dir: str,
         process_ind: int,
         total_processes: int,
         seeds: Optional[List[int]] = None,
         deterministic_cudnn: bool = False,
     ) -> Dict[str, Any]:
+        path = os.path.join(scenes_dir, "*.json.gz")
+        scenes = [scene.split("/")[-1].split(".")[0] for scene in glob.glob(path)]
+        if len(scenes) == 0:
+            raise RuntimeError(
+                (
+                    "Could find no scene dataset information in directory {}."
+                    " Are you sure you've downloaded them? "
+                    " If not, see https://allenact.org/installation/download-datasets/ information"
+                    " on how this can be done."
+                ).format(scenes_dir)
+            )
         if total_processes > len(scenes):  # oversample some scenes -> bias
             if total_processes % len(scenes) != 0:
                 print(
@@ -168,18 +197,20 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
                     " You can avoid this by setting a number of workers divisor of the number of scenes"
                 )
         inds = self._partition_inds(len(scenes), total_processes)
+        print(scenes_dir, total_processes, len(scenes))
 
         return {
             "scenes": scenes[inds[process_ind] : inds[process_ind + 1]],
-            # "object_types": self.OBJECT_TYPES,
+            #"object_types": self.OBJECT_TYPES,
             "env_args": self.ENV_ARGS,
             "max_steps": self.MAX_STEPS,
             "sensors": self.SENSORS,
             "action_space": gym.spaces.Discrete(
-                len(ObjectNaviThorGridTask.class_action_names())
+                len(ObjectNavTask.class_action_names())
             ),
             "seed": seeds[process_ind] if seeds is not None else None,
             "deterministic_cudnn": deterministic_cudnn,
+            "rewards_config": self.REWARD_CONFIG,
         }
 
     def train_task_sampler_args(
@@ -191,13 +222,15 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
         deterministic_cudnn: bool = False,
     ) -> Dict[str, Any]:
         res = self._get_sampler_args_for_scene_split(
-            self.TRAIN_SCENES,
+            os.path.join(self.TRAIN_DATASET_DIR, "episodes"),
             process_ind,
             total_processes,
             seeds=seeds,
             deterministic_cudnn=deterministic_cudnn,
         )
-        res["scene_period"] = "manual"
+        #res["scene_period"] = "manual"
+        res["scene_directory"] = self.TRAIN_DATASET_DIR
+        res["loop_dataset"] = False
         res["env_args"] = {}
         res["env_args"].update(self.ENV_ARGS)
         res["env_args"]["x_display"] = (
@@ -216,14 +249,16 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
         deterministic_cudnn: bool = False,
     ) -> Dict[str, Any]:
         res = self._get_sampler_args_for_scene_split(
-            self.VALID_SCENES,
+            os.path.join(self.VAL_DATASET_DIR, "episodes"),
             process_ind,
             total_processes,
             seeds=seeds,
             deterministic_cudnn=deterministic_cudnn,
         )
-        res["scene_period"] = self.VALID_SAMPLES_IN_SCENE
-        res["max_tasks"] = self.VALID_SAMPLES_IN_SCENE * len(res["scenes"])
+        # res["scene_period"] = self.VALID_SAMPLES_IN_SCENE
+        # res["max_tasks"] = self.VALID_SAMPLES_IN_SCENE * len(res["scenes"])
+        res["scene_directory"] = self.VAL_DATASET_DIR
+        res["loop_dataset"] = True
         res["env_args"] = {}
         res["env_args"].update(self.ENV_ARGS)
         res["env_args"]["x_display"] = (
@@ -231,6 +266,7 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
             if devices is not None and len(devices) > 0
             else None
         )
+        res["allow_flipping"] = True
         return res
 
     def test_task_sampler_args(
@@ -242,14 +278,16 @@ class ObjectNavThorPPOExperimentConfig(ExperimentConfig):
         deterministic_cudnn: bool = False,
     ) -> Dict[str, Any]:
         res = self._get_sampler_args_for_scene_split(
-            self.TEST_SCENES,
+            os.path.join(self.VAL_DATASET_DIR, "episodes"),
             process_ind,
             total_processes,
             seeds=seeds,
             deterministic_cudnn=deterministic_cudnn,
         )
-        res["scene_period"] = self.TEST_SAMPLES_IN_SCENE
-        res["max_tasks"] = self.TEST_SAMPLES_IN_SCENE * len(res["scenes"])
+        # res["scene_period"] = self.TEST_SAMPLES_IN_SCENE
+        # res["max_tasks"] = self.TEST_SAMPLES_IN_SCENE * len(res["scenes"])
+        res["scene_directory"] = self.VAL_DATASET_DIR
+        res["loop_dataset"] = True
         res["env_args"] = {}
         res["env_args"].update(self.ENV_ARGS)
         res["env_args"]["x_display"] = (
