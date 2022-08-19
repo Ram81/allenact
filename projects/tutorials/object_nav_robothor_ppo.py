@@ -117,13 +117,13 @@ class ObjectNavRoboThorPPOExperimentConfig(ExperimentConfig):
         has_gpu = num_gpus != 0
 
         if mode == "train":
-            nprocesses = 20 if has_gpu else 4
-            gpu_ids = [0] if has_gpu else []
+            nprocesses = [20 for i in range(2)] if has_gpu else [4]
+            gpu_ids = [i for i in range(2)] if has_gpu else []
         elif mode == "valid":
-            nprocesses = 1
-            gpu_ids = [1 % num_gpus] if has_gpu else []
+            nprocesses = 0
+            gpu_ids = [0 % num_gpus] if has_gpu else []
         elif mode == "test":
-            nprocesses = 1
+            nprocesses = 0
             gpu_ids = [0] if has_gpu else []
         else:
             raise NotImplementedError("mode must be 'train', 'valid', or 'test'.")

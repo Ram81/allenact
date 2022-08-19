@@ -15,19 +15,28 @@
 source /srv/flash1/rramrakhya6/miniconda3/etc/profile.d/conda.sh
 conda deactivate
 conda activate procthor
+echo "Source conda environment done!"
+
+export PYTHONPATH=/srv/flash1/rramrakhya6/fall_2022/allenact
+
+source /srv/flash1/rramrakhya6/fall_2022/vulkansdk-1.2.198.1/setup-env.sh
+echo "Source vulkan done!"
 
 MASTER_ADDR=$(srun --ntasks=1 hostname 2>&1 | tail -n1)
 export MASTER_ADDR
-export DEFAULT_PORT=8738
+export DEFAULT_PORT=8739
 
 config=$1
 
 SEED=12345
-SUB_PROCESSES=8
+SUB_PROCESSES=2
 EXPERIMENT_OUTPUT_DIR="experiment_output/object_nav_robothor_ppo"
-export PYTHONPATH=/srv/flash1/rramrakhya6/fall_2022/allenact
 
 set -x
+
+echo $PATH
+echo $LD_LIBRARY_PATH
+echo $VK_LAYER_PATH
 
 echo "In RoboTHOR ObjectNav DD-PPO"
 srun python allenact/main.py \

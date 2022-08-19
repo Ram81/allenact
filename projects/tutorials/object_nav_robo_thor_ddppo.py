@@ -36,7 +36,10 @@ from projects.objectnav_baselines.experiments.robothor.objectnav_robothor_rgb_re
 )
 from allenact_plugins.robothor_plugin.robothor_task_samplers import ObjectNavDatasetTaskSampler
 from allenact_plugins.robothor_plugin.robothor_tasks import ObjectNavTask
-from allenact_plugins.navigation_plugin.objectnav.models import ObjectNavActorCritic
+from allenact_plugins.navigation_plugin.objectnav.models import (
+    ResnetTensorNavActorCritic,
+    ObjectNavActorCritic
+)
 
 
 class ObjectNavRoboThorDDPPOExperimentConfig(BaseConfig):
@@ -47,7 +50,7 @@ class ObjectNavRoboThorDDPPOExperimentConfig(BaseConfig):
 
     # THOR distributed configs
     THOR_COMMIT_ID = "91139c909576f3bf95a187c5b02c6fd455d06b48"
-    THOR_IS_HEADLESS = True
+    DEFAULT_THOR_IS_HEADLESS = True
 
     # Setting up sensors and basic environment details
     SCREEN_SIZE = 224
@@ -79,13 +82,11 @@ class ObjectNavRoboThorDDPPOExperimentConfig(BaseConfig):
         return "ObjectNavRoboThorDDPPO"
     
     def env_args(self):
-        pdb.set_trace()
         res = super().env_args()
         res.pop("commit_id", None)
         res.update({
             "platform": ai2thor.platform.CloudRendering
         })
-        pdb.set_trace()
         return res
 
     # Override ExperimentConfig init method to support distributed nodes argument
@@ -102,6 +103,7 @@ class ObjectNavRoboThorDDPPOExperimentConfig(BaseConfig):
             train_gpu_ids=train_gpu_ids,
             val_gpu_ids=val_gpu_ids,
             test_gpu_ids=test_gpu_ids,
+            headless=True,
         )
         self.distributed_nodes = distributed_nodes
     
@@ -254,155 +256,163 @@ class ObjectNavRoboThorDDPPOExperimentConfig(BaseConfig):
 
         return params
 
-    @classmethod
-    def create_model(cls, **kwargs) -> nn.Module:
-        return ObjectNavActorCritic(
-            action_space=gym.spaces.Discrete(
-                len(ObjectNavTask.class_action_names())
-            ),
-            observation_space=SensorSuite(cls.SENSORS).observation_spaces,
-            rgb_uuid=cls.SENSORS[0].uuid,
-            depth_uuid=None,
-            goal_sensor_uuid="goal_object_type_ind",
-            hidden_size=512,
-            object_type_embedding_dim=8,
-        )
+    # @classmethod
+    # def create_model(cls, **kwargs) -> nn.Module:
+    #     has_rgb = True
+    #     has_depth = False
+    #     goal_sensor_uuid = "goal_object_type_ind"
+
+    #     return ResnetTensorNavActorCritic(
+    #         action_space=gym.spaces.Discrete(len(ObjectNavTask.class_action_names())),
+    #         observation_space=kwargs["sensor_preprocessor_graph"].observation_spaces,
+    #         goal_sensor_uuid=goal_sensor_uuid,
+    #         rgb_resnet_preprocessor_uuid="rgb_resnet_imagenet" if has_rgb else None,
+    #         depth_resnet_preprocessor_uuid="depth_resnet_imagenet"
+    #         if has_depth
+    #         else None,
+    #         hidden_size=512,
+    #         goal_dims=32,
+    #     )
+
     
-    @classmethod
-    def make_sampler_fn(cls, **kwargs) -> TaskSampler:
-        return ObjectNavDatasetTaskSampler(**kwargs)
+    # @classmethod
+    # def make_sampler_fn(cls, **kwargs) -> TaskSampler:
+    #     return ObjectNavDatasetTaskSampler(**kwargs)
 
-    @staticmethod
-    def _partition_inds(n: int, num_parts: int):
-        return np.round(np.linspace(0, n, num_parts + 1, endpoint=True)).astype(
-            np.int32
-        )
+    # @staticmethod
+    # def _partition_inds(n: int, num_parts: int):
+    #     return np.round(np.linspace(0, n, num_parts + 1, endpoint=True)).astype(
+    #         np.int32
+    #     )
 
-    def _get_sampler_args_for_scene_split(
-        self,
-        scenes_dir: str,
-        process_ind: int,
-        total_processes: int,
-        seeds: Optional[List[int]] = None,
-        deterministic_cudnn: bool = False,
-    ) -> Dict[str, Any]:
-        path = os.path.join(scenes_dir, "*.json.gz")
-        scenes = [scene.split("/")[-1].split(".")[0] for scene in glob.glob(path)]
-        if len(scenes) == 0:
-            raise RuntimeError(
-                (
-                    "Could find no scene dataset information in directory {}."
-                    " Are you sure you've downloaded them? "
-                    " If not, see https://allenact.org/installation/download-datasets/ information"
-                    " on how this can be done."
-                ).format(scenes_dir)
-            )
-        if total_processes > len(scenes):  # oversample some scenes -> bias
-            if total_processes % len(scenes) != 0:
-                print(
-                    "Warning: oversampling some of the scenes to feed all processes."
-                    " You can avoid this by setting a number of workers divisible by the number of scenes"
-                )
-            scenes = scenes * int(ceil(total_processes / len(scenes)))
-            scenes = scenes[: total_processes * (len(scenes) // total_processes)]
-        else:
-            if len(scenes) % total_processes != 0:
-                print(
-                    "Warning: oversampling some of the scenes to feed all processes."
-                    " You can avoid this by setting a number of workers divisor of the number of scenes"
-                )
-        inds = self._partition_inds(len(scenes), total_processes)
-        print(scenes_dir, total_processes, len(scenes))
+    # def _get_sampler_args_for_scene_split(
+    #     self,
+    #     scenes_dir: str,
+    #     process_ind: int,
+    #     total_processes: int,
+    #     seeds: Optional[List[int]] = None,
+    #     deterministic_cudnn: bool = False,
+    # ) -> Dict[str, Any]:
+    #     path = os.path.join(scenes_dir, "*.json.gz")
+    #     scenes = [scene.split("/")[-1].split(".")[0] for scene in glob.glob(path)]
+    #     if len(scenes) == 0:
+    #         raise RuntimeError(
+    #             (
+    #                 "Could find no scene dataset information in directory {}."
+    #                 " Are you sure you've downloaded them? "
+    #                 " If not, see https://allenact.org/installation/download-datasets/ information"
+    #                 " on how this can be done."
+    #             ).format(scenes_dir)
+    #         )
+    #     if total_processes > len(scenes):  # oversample some scenes -> bias
+    #         if total_processes % len(scenes) != 0:
+    #             print(
+    #                 "Warning: oversampling some of the scenes to feed all processes."
+    #                 " You can avoid this by setting a number of workers divisible by the number of scenes"
+    #             )
+    #         scenes = scenes * int(ceil(total_processes / len(scenes)))
+    #         scenes = scenes[: total_processes * (len(scenes) // total_processes)]
+    #     else:
+    #         if len(scenes) % total_processes != 0:
+    #             print(
+    #                 "Warning: oversampling some of the scenes to feed all processes."
+    #                 " You can avoid this by setting a number of workers divisor of the number of scenes"
+    #             )
+    #     inds = self._partition_inds(len(scenes), total_processes)
+    #     print(scenes_dir, total_processes, len(scenes))
 
-        return {
-            "scenes": scenes[inds[process_ind] : inds[process_ind + 1]],
-            "env_args": self.ENV_ARGS,
-            "max_steps": self.MAX_STEPS,
-            "sensors": self.SENSORS,
-            "action_space": gym.spaces.Discrete(
-                len(ObjectNavTask.class_action_names())
-            ),
-            "seed": seeds[process_ind] if seeds is not None else None,
-            "deterministic_cudnn": deterministic_cudnn,
-            "rewards_config": self.REWARD_CONFIG,
-        }
+    #     return {
+    #         "scenes": scenes[inds[process_ind] : inds[process_ind + 1]],
+    #         "env_args": self.ENV_ARGS,
+    #         "max_steps": self.MAX_STEPS,
+    #         "sensors": self.SENSORS,
+    #         "action_space": gym.spaces.Discrete(
+    #             len(ObjectNavTask.class_action_names())
+    #         ),
+    #         "seed": seeds[process_ind] if seeds is not None else None,
+    #         "deterministic_cudnn": deterministic_cudnn,
+    #         "rewards_config": self.REWARD_CONFIG,
+    #     }
 
-    def train_task_sampler_args(
-        self,
-        process_ind: int,
-        total_processes: int,
-        devices: Optional[List[int]] = None,
-        seeds: Optional[List[int]] = None,
-        deterministic_cudnn: bool = False,
-    ) -> Dict[str, Any]:
-        res = self._get_sampler_args_for_scene_split(
-            os.path.join(self.TRAIN_DATASET_DIR, "episodes"),
-            process_ind,
-            total_processes,
-            seeds=seeds,
-            deterministic_cudnn=deterministic_cudnn,
-        )
-        res["scene_directory"] = self.TRAIN_DATASET_DIR
-        res["loop_dataset"] = True
-        res["env_args"] = {}
-        res["env_args"].update(self.ENV_ARGS)
-        res["env_args"]["x_display"] = (
-            ("0.%d" % devices[process_ind % len(devices)])
-            if devices is not None and len(devices) > 0
-            else None
-        )
-        return res
+    # def train_task_sampler_args(
+    #     self,
+    #     process_ind: int,
+    #     total_processes: int,
+    #     devices: Optional[List[int]] = None,
+    #     seeds: Optional[List[int]] = None,
+    #     deterministic_cudnn: bool = False,
+    # ) -> Dict[str, Any]:
+    #     res = self._get_sampler_args_for_scene_split(
+    #         os.path.join(self.TRAIN_DATASET_DIR, "episodes"),
+    #         process_ind,
+    #         total_processes,
+    #         seeds=seeds,
+    #         deterministic_cudnn=deterministic_cudnn,
+    #     )
+    #     res["scene_directory"] = self.TRAIN_DATASET_DIR
+    #     res["loop_dataset"] = True
+    #     res["env_args"] = {}
+    #     res["env_args"].update(self.ENV_ARGS)
+    #     res["env_args"]["x_display"] = (
+    #         ("0.%d" % devices[process_ind % len(devices)])
+    #         if devices is not None and len(devices) > 0
+    #         else None
+    #     )
+    #     res.pop("commit_id", None)
+    #     return res
 
-    def valid_task_sampler_args(
-        self,
-        process_ind: int,
-        total_processes: int,
-        devices: Optional[List[int]] = None,
-        seeds: Optional[List[int]] = None,
-        deterministic_cudnn: bool = False,
-    ) -> Dict[str, Any]:
-        res = self._get_sampler_args_for_scene_split(
-            os.path.join(self.VAL_DATASET_DIR, "episodes"),
-            process_ind,
-            total_processes,
-            seeds=seeds,
-            deterministic_cudnn=deterministic_cudnn,
-        )
-        res["scene_directory"] = self.VAL_DATASET_DIR
-        res["loop_dataset"] = False
-        res["env_args"] = {}
-        res["env_args"].update(self.ENV_ARGS)
-        res["env_args"]["x_display"] = (
-            ("0.%d" % devices[process_ind % len(devices)])
-            if devices is not None and len(devices) > 0
-            else None
-        )
-        res["allow_flipping"] = True
-        return res
+    # def valid_task_sampler_args(
+    #     self,
+    #     process_ind: int,
+    #     total_processes: int,
+    #     devices: Optional[List[int]] = None,
+    #     seeds: Optional[List[int]] = None,
+    #     deterministic_cudnn: bool = False,
+    # ) -> Dict[str, Any]:
+    #     res = self._get_sampler_args_for_scene_split(
+    #         os.path.join(self.VAL_DATASET_DIR, "episodes"),
+    #         process_ind,
+    #         total_processes,
+    #         seeds=seeds,
+    #         deterministic_cudnn=deterministic_cudnn,
+    #     )
+    #     res["scene_directory"] = self.VAL_DATASET_DIR
+    #     res["loop_dataset"] = False
+    #     res["env_args"] = {}
+    #     res["env_args"].update(self.ENV_ARGS)
+    #     res["env_args"]["x_display"] = (
+    #         ("0.%d" % devices[process_ind % len(devices)])
+    #         if devices is not None and len(devices) > 0
+    #         else None
+    #     )
+    #     res["allow_flipping"] = True
+    #     res.pop("commit_id", None)
+    #     return res
 
-    def test_task_sampler_args(
-        self,
-        process_ind: int,
-        total_processes: int,
-        devices: Optional[List[int]] = None,
-        seeds: Optional[List[int]] = None,
-        deterministic_cudnn: bool = False,
-    ) -> Dict[str, Any]:
-        res = self._get_sampler_args_for_scene_split(
-            os.path.join(self.VAL_DATASET_DIR, "episodes"),
-            process_ind,
-            total_processes,
-            seeds=seeds,
-            deterministic_cudnn=deterministic_cudnn,
-        )
-        res["scene_directory"] = self.VAL_DATASET_DIR
-        res["loop_dataset"] = False
-        res["env_args"] = {}
-        res["env_args"].update(self.ENV_ARGS)
-        res["env_args"]["x_display"] = (
-            ("0.%d" % devices[process_ind % len(devices)])
-            if devices is not None and len(devices) > 0
-            else None
-        )
-        return res
+    # def test_task_sampler_args(
+    #     self,
+    #     process_ind: int,
+    #     total_processes: int,
+    #     devices: Optional[List[int]] = None,
+    #     seeds: Optional[List[int]] = None,
+    #     deterministic_cudnn: bool = False,
+    # ) -> Dict[str, Any]:
+    #     res = self._get_sampler_args_for_scene_split(
+    #         os.path.join(self.VAL_DATASET_DIR, "episodes"),
+    #         process_ind,
+    #         total_processes,
+    #         seeds=seeds,
+    #         deterministic_cudnn=deterministic_cudnn,
+    #     )
+    #     res["scene_directory"] = self.VAL_DATASET_DIR
+    #     res["loop_dataset"] = False
+    #     res["env_args"] = {}
+    #     res["env_args"].update(self.ENV_ARGS)
+    #     res["env_args"]["x_display"] = (
+    #         ("0.%d" % devices[process_ind % len(devices)])
+    #         if devices is not None and len(devices) > 0
+    #         else None
+    #     )
+    #     res.pop("commit_id", None)
+    #     return res
 
