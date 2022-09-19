@@ -17,13 +17,14 @@ import torch.distributions  # type: ignore
 import torch.multiprocessing as mp  # type: ignore
 import torch.nn as nn
 import torch.optim as optim
-# noinspection PyProtectedMember
-from torch._C._distributed_c10d import ReduceOp
-
 from allenact.algorithms.onpolicy_sync.misc import TrackingInfo, TrackingInfoType
 from allenact.base_abstractions.sensor import Sensor
 from allenact.utils.misc_utils import str2bool
 from allenact.utils.model_utils import md5_hash_of_state_dict
+from allenact.utils.sensor_utils import MetricsEngineSensor
+
+# noinspection PyProtectedMember
+from torch._C._distributed_c10d import ReduceOp
 
 try:
     # noinspection PyProtectedMember,PyUnresolvedReferences
@@ -192,8 +193,8 @@ class OnPolicyRLEngine(object):
         if self.num_samplers > 0:
             create_model_kwargs = {}
             if self.machine_params.sensor_preprocessor_graph is not None:
-                self.sensor_preprocessor_graph = self.machine_params.sensor_preprocessor_graph.to(
-                    self.device
+                self.sensor_preprocessor_graph = (
+                    self.machine_params.sensor_preprocessor_graph.to(self.device)
                 )
                 create_model_kwargs[
                     "sensor_preprocessor_graph"
@@ -201,7 +202,8 @@ class OnPolicyRLEngine(object):
 
             set_seed(self.seed)
             self.actor_critic = cast(
-                ActorCriticModel, self.config.create_model(**create_model_kwargs),
+                ActorCriticModel,
+                self.config.create_model(**create_model_kwargs),
             ).to(self.device)
 
         if initial_model_state_dict is not None:
@@ -276,6 +278,12 @@ class OnPolicyRLEngine(object):
         # Keeping track of metrics during training/inference
         self.single_process_metrics: List = []
         self.single_process_task_callback_data: List = []
+
+        # Engine sensors
+        # TODO: Make it configurable from ExperimentConfig
+        self.metrics_engine_sensor: MetricsEngineSensor = MetricsEngineSensor(
+            reset_interval=self.config.metrics_accumulation_interval
+        )
 
     @property
     def vector_tasks(
@@ -384,7 +392,8 @@ class OnPolicyRLEngine(object):
             ckpt = torch.load(os.path.abspath(ckpt), map_location="cpu")
 
         ckpt = cast(
-            Dict[str, Union[Dict[str, Any], torch.Tensor, float, int, str, List]], ckpt,
+            Dict[str, Union[Dict[str, Any], torch.Tensor, float, int, str, List]],
+            ckpt,
         )
 
         self.actor_critic.load_state_dict(ckpt["model_state_dict"])  # type:ignore
@@ -393,7 +402,9 @@ class OnPolicyRLEngine(object):
 
     # aggregates task metrics currently in queue
     def aggregate_task_metrics(
-        self, logging_pkg: LoggingPackage, num_tasks: int = -1,
+        self,
+        logging_pkg: LoggingPackage,
+        num_tasks: int = -1,
     ) -> LoggingPackage:
         if num_tasks > 0:
             if len(self.single_process_metrics) != num_tasks:
@@ -569,7 +580,8 @@ class OnPolicyRLEngine(object):
     ) -> int:
         rollout_storage = cast(RolloutStorage, uuid_to_storage[rollout_storage_uuid])
         actions, actor_critic_output, memory, _ = self.act(
-            rollout_storage=rollout_storage, dist_wrapper_class=dist_wrapper_class,
+            rollout_storage=rollout_storage,
+            dist_wrapper_class=dist_wrapper_class,
         )
 
         # Flatten actions
@@ -604,7 +616,9 @@ class OnPolicyRLEngine(object):
         observations, rewards, dones, infos = [list(x) for x in zip(*outputs)]
 
         rewards = torch.tensor(
-            rewards, dtype=torch.float, device=self.device,  # type:ignore
+            rewards,
+            dtype=torch.float,
+            device=self.device,  # type:ignore
         )
 
         # We want rewards to have dimensions [sampler, reward]
@@ -618,7 +632,9 @@ class OnPolicyRLEngine(object):
         masks = (
             1.0
             - torch.tensor(
-                dones, dtype=torch.float32, device=self.device,  # type:ignore
+                dones,
+                dtype=torch.float32,
+                device=self.device,  # type:ignore
             )
         ).view(
             -1, 1
@@ -811,8 +827,10 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 "offpolicy_epoch_done", self.store
             )
             # Flag for finished worker in current epoch with custom component
-            self.insufficient_data_for_update = torch.distributed.PrefixStore(  # type:ignore
-                "insufficient_data_for_update", self.store
+            self.insufficient_data_for_update = (
+                torch.distributed.PrefixStore(  # type:ignore
+                    "insufficient_data_for_update", self.store
+                )
             )
         else:
             self.num_workers_done = None
@@ -978,7 +996,8 @@ class OnPolicyTrainer(OnPolicyRLEngine):
             )
 
         actions, actor_critic_output, memory, step_observation = super().act(
-            rollout_storage=rollout_storage, dist_wrapper_class=dist_wrapper_class,
+            rollout_storage=rollout_storage,
+            dist_wrapper_class=dist_wrapper_class,
         )
 
         self.step_count += self.num_active_samplers
@@ -1305,14 +1324,18 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                     else:  # local_global_batch_size_tuple is not None, since we're distributed:
                         p.grad = p.grad * local_to_global_batch_size_ratio
                     reductions.append(
-                        dist.all_reduce(p.grad, async_op=True,)  # sum
+                        dist.all_reduce(
+                            p.grad,
+                            async_op=True,
+                        )  # sum
                     )  # synchronize
                     all_params.append(p)
             for reduction, p in zip(reductions, all_params):
                 reduction.wait()
 
         nn.utils.clip_grad_norm_(
-            self.actor_critic.parameters(), max_norm=max_grad_norm,  # type: ignore
+            self.actor_critic.parameters(),
+            max_norm=max_grad_norm,  # type: ignore
         )
 
         self.optimizer.step()  # type: ignore
@@ -1363,6 +1386,7 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 )
 
         self.results_queue.put(logging_pkg)
+        return {"metrics": logging_pkg.metrics_tracker.means()}
 
     def _save_checkpoint_then_send_checkpoint_for_validation_and_update_last_save_counter(
         self, pipeline_stage_index: Optional[int] = None
@@ -1650,6 +1674,11 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 self.training_pipeline.total_steps - self.last_log >= self.log_interval
                 or self.training_pipeline.current_stage.is_complete
             ):
+                # Aggregate metrics using engine sensor
+                self.metrics_engine_sensor(
+                    engine=self,
+                    total_steps=self.training_pipeline.total_steps,
+                )
                 self.aggregate_and_send_logging_package(
                     tracking_info_list=self.tracking_info_list
                 )
@@ -1672,11 +1701,44 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 % cur_stage_training_settings.advance_scene_rollout_period
                 == 0
             ):
+                current_aggregated_metrics = self.metrics_engine_sensor.means()
+                # Reset engine metrics sensor after aggregating metrics
+                self.metrics_engine_sensor.reset(self.training_pipeline.total_steps)
                 get_logger().info(
                     f"[{self.mode} worker {self.worker_id}] Force advance"
                     f" tasks with {self.training_pipeline.rollout_count} rollouts"
                 )
-                self.vector_tasks.next_task(force_advance_scene=True)
+                get_logger().info(
+                    f"[{self.mode} worker {self.worker_id}] Train metrics at logging {current_aggregated_metrics}"
+                )
+                try:
+                    self.vector_tasks.next_task(
+                        force_advance_scene=True, metrics=current_aggregated_metrics
+                    )
+                except (TimeoutError, EOFError) as e:
+                    if (
+                        not self.try_restart_after_task_error
+                    ) or self.mode != TRAIN_MODE_STR:
+                        # Apparently you can just call `raise` here and doing so will just raise the exception as though
+                        # it was not caught (so the stacktrace isn't messed up)
+                        get_logger().info(
+                            f"[{self.mode} worker {self.worker_id}] Restartung worker due to timeout"
+                        )
+                        raise
+                    else:
+                        get_logger().warning(
+                            f"[{self.mode} worker {self.worker_id}] `vector_tasks` appears to have crashed during"
+                            f" next_tasks() call due to an {type(e).__name__} error. You have set"
+                            f" `try_restart_after_task_error` to `True` so we will attempt to restart these tasks from"
+                            f" the beginning. USE THIS FEATURE AT YOUR OWN"
+                            f" RISK. Exception:\n{traceback.format_exc()}."
+                        )
+                        self.vector_tasks.close()
+                        self._vector_tasks = None
+                get_logger().info(
+                    f"[{self.mode} worker {self.worker_id}] Resetting vector task"
+                )
+
                 self.initialize_storage_and_viz(
                     storage_to_initialize=list(uuid_to_storage.values())
                 )
@@ -1780,7 +1842,8 @@ class OnPolicyInference(OnPolicyRLEngine):
             assert visualizer.empty()
 
         num_paused = self.initialize_storage_and_viz(
-            storage_to_initialize=[rollout_storage], visualizer=visualizer,
+            storage_to_initialize=[rollout_storage],
+            visualizer=visualizer,
         )
         assert num_paused == 0, f"{num_paused} tasks paused when initializing eval"
 
@@ -1849,7 +1912,8 @@ class OnPolicyInference(OnPolicyRLEngine):
                     lengths: List[int]
                     if self.num_active_samplers > 0:
                         lengths = self.vector_tasks.command(
-                            "sampler_attr", ["length"] * self.num_active_samplers,
+                            "sampler_attr",
+                            ["length"] * self.num_active_samplers,
                         )
                         npending = sum(lengths)
                     else:

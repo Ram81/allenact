@@ -17,11 +17,9 @@ from typing import Dict, List, Optional, Tuple, Type
 from setproctitle import setproctitle as ptitle
 
 from allenact import __version__
-from allenact.algorithms.onpolicy_sync.runner import (
-    CONFIG_KWARGS_STR,
-    OnPolicyRunner,
-    SaveDirFormat,
-)
+from allenact.algorithms.onpolicy_sync.runner import (CONFIG_KWARGS_STR,
+                                                      OnPolicyRunner,
+                                                      SaveDirFormat)
 from allenact.base_abstractions.experiment_config import ExperimentConfig
 from allenact.utils.system import HUMAN_LOG_LEVELS, get_logger, init_logging
 
@@ -31,7 +29,8 @@ def get_argument_parser():
 
     # noinspection PyTypeChecker
     parser = argparse.ArgumentParser(
-        description="allenact", formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="allenact",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     parser.add_argument(
@@ -98,7 +97,12 @@ def get_argument_parser():
     )
 
     parser.add_argument(
-        "-s", "--seed", required=False, default=None, type=int, help="random seed",
+        "-s",
+        "--seed",
+        required=False,
+        default=None,
+        type=int,
+        help="random seed",
     )
     parser.add_argument(
         "-b",
@@ -280,7 +284,7 @@ def get_argument_parser():
     parser.add_argument(
         "--enable_crash_recovery",
         dest="enable_crash_recovery",
-        default=False,
+        default=True,
         action="store_true",
         required=False,
         help="Whether or not to try recovering when a task crashes (use at your own risk).",
@@ -321,6 +325,7 @@ def get_args():
 
     parser = get_argument_parser()
     args = parser.parse_args()
+    print("crash recovery enabled: {}".format(args.enable_crash_recovery))
 
     # check for deprecated
     deprecated_flags = ["test_date", "skip_checkpoints", "approx_ckpt_steps_count"]

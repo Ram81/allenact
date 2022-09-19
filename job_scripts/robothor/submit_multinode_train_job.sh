@@ -2,8 +2,8 @@
 #SBATCH --job-name=procthor
 #SBATCH --gres gpu:8
 #SBATCH --nodes 1
-#SBATCH --cpus-per-task 48
-#SBATCH --ntasks-per-node 1
+#SBATCH --cpus-per-task 6
+#SBATCH --ntasks-per-node 8
 #SBATCH --signal=USR1@1000
 #SBATCH --partition=short
 #SBATCH --constraint=a40
@@ -33,7 +33,6 @@ config=$1
 SEED=12345
 SUB_PROCESSES=1
 EXPERIMENT_OUTPUT_DIR="experiment_output/object_nav_robothor_ddppo"
-export HOME=/srv/flash1/rramrakhya6/fall_2022/
 
 set -x
 
@@ -50,5 +49,5 @@ object_nav_robo_thor_ddppo \
 -m $SUB_PROCESSES \
 -o $EXPERIMENT_OUTPUT_DIR \
 -s $SEED \
---config_kwargs '{"distributed_nodes": 1, "headless": true, "num_train_processes": 96}' \
+--config_kwargs '{"distributed_nodes": 1, "headless": true, "num_train_processes": 8}' \
 --distributed_ip_and_port $MASTER_ADDR:$DEFAULT_PORT
