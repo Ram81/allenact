@@ -19,15 +19,12 @@ import traceback
 from collections import defaultdict
 from multiprocessing.context import BaseContext
 from multiprocessing.process import BaseProcess
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import filelock
 import numpy as np
 import torch
 import torch.multiprocessing as mp
-from setproctitle import setproctitle as ptitle
-from torch.distributions.utils import lazy_property
-
 from allenact.algorithms.onpolicy_sync.engine import (
     TEST_MODE_STR,
     TRAIN_MODE_STR,
@@ -54,6 +51,8 @@ from allenact.utils.model_utils import md5_hash_of_state_dict
 from allenact.utils.system import find_free_port, get_logger
 from allenact.utils.tensor_utils import SummaryWriter
 from allenact.utils.viz_utils import VizSuite
+from setproctitle import setproctitle as ptitle
+from torch.distributions.utils import lazy_property
 
 CONFIG_KWARGS_STR = "__CONFIG_KWARGS__"
 
@@ -521,7 +520,8 @@ class OnPolicyRunner(object):
                 try_restart_after_task_error=try_restart_after_task_error,
             )
             train: BaseProcess = self.mp_ctx.Process(
-                target=self.train_loop, kwargs=training_kwargs,
+                target=self.train_loop,
+                kwargs=training_kwargs,
             )
             try:
                 train.start()
@@ -534,7 +534,8 @@ class OnPolicyRunner(object):
                     model_hash = md5_hash_of_state_dict(initial_model_state_dict)
                     training_kwargs["initial_model_state_dict"] = model_hash
                     train = self.mp_ctx.Process(
-                        target=self.train_loop, kwargs=training_kwargs,
+                        target=self.train_loop,
+                        kwargs=training_kwargs,
                     )
                     train.start()
                 else:
@@ -738,9 +739,17 @@ class OnPolicyRunner(object):
             start_time_str or self.local_start_time_str,
         ]
         if self.save_dir_fmt == SaveDirFormat.NESTED:
-            folder = os.path.join(self.output_dir, *path_parts, "checkpoints",)
+            folder = os.path.join(
+                self.output_dir,
+                *path_parts,
+                "checkpoints",
+            )
         elif self.save_dir_fmt == SaveDirFormat.FLAT:
-            folder = os.path.join(self.output_dir, "checkpoints", *path_parts,)
+            folder = os.path.join(
+                self.output_dir,
+                "checkpoints",
+                *path_parts,
+            )
         else:
             raise NotImplementedError
         if create_if_none:
@@ -783,7 +792,10 @@ class OnPolicyRunner(object):
     def metric_path(self, start_time_str: str) -> str:
         if self.save_dir_fmt == SaveDirFormat.NESTED:
             return os.path.join(
-                self.output_dir, "test", self.config.tag(), start_time_str,
+                self.output_dir,
+                "test",
+                self.config.tag(),
+                start_time_str,
             )
         elif self.save_dir_fmt == SaveDirFormat.FLAT:
             return os.path.join(
@@ -805,9 +817,17 @@ class OnPolicyRunner(object):
             self.local_start_time_str,
         ]
         if self.save_dir_fmt == SaveDirFormat.NESTED:
-            base_dir = os.path.join(self.output_dir, *path_parts, "used_configs",)
+            base_dir = os.path.join(
+                self.output_dir,
+                *path_parts,
+                "used_configs",
+            )
         elif self.save_dir_fmt == SaveDirFormat.FLAT:
-            base_dir = os.path.join(self.output_dir, "used_configs", *path_parts,)
+            base_dir = os.path.join(
+                self.output_dir,
+                "used_configs",
+                *path_parts,
+            )
         else:
             raise NotImplementedError
         os.makedirs(base_dir, exist_ok=True)
@@ -850,7 +870,8 @@ class OnPolicyRunner(object):
                     prefix = "" if k == -1 else f"namecollision{k}__"
                     k += 1
                     dst_path = os.path.join(
-                        base_dir, f"{prefix}{os.path.basename(src_path)}",
+                        base_dir,
+                        f"{prefix}{os.path.basename(src_path)}",
                     )
                     if not os.path.exists(dst_path):
                         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -1007,7 +1028,8 @@ class OnPolicyRunner(object):
                     stage_component_uuid=stage_component_uuid,
                 )
                 metrics_and_train_info_tracker.add_scalars(
-                    scalars=train_info_means, n=train_info_counts,
+                    scalars=train_info_means,
+                    n=train_info_counts,
                 )
 
                 if storage_uuid is None:
@@ -1083,7 +1105,9 @@ class OnPolicyRunner(object):
                     callback_metric_means[approx_eps_key] = eps
                     if log_writer is not None:
                         log_writer.add_scalar(
-                            approx_eps_key, eps, cur_total_exp,
+                            approx_eps_key,
+                            eps,
+                            cur_total_exp,
                         )
 
         get_logger().info(" ".join(message))

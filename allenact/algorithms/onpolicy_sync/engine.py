@@ -253,6 +253,7 @@ class OnPolicyRLEngine(object):
             get_logger().debug(
                 f"Worker {self.worker_id}: initializing distributed {backend} backend with device {self.device}."
             )
+            get_logger().debug(f"Worker {self.worker_id}: timeout {DEBUG_VST_TIMEOUT}")
             dist.init_process_group(  # type:ignore
                 backend=backend,
                 store=self.store,
@@ -1722,7 +1723,7 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                         # Apparently you can just call `raise` here and doing so will just raise the exception as though
                         # it was not caught (so the stacktrace isn't messed up)
                         get_logger().info(
-                            f"[{self.mode} worker {self.worker_id}] Restartung worker due to timeout"
+                            f"[{self.mode} worker {self.worker_id}] Worker killed due to timeout"
                         )
                         raise
                     else:
