@@ -2,14 +2,13 @@
 experiments."""
 
 import abc
-from typing import Dict, Any, Optional, List, Union, Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import torch
 import torch.nn as nn
-
 from allenact.base_abstractions.preprocessor import SensorPreprocessorGraph
 from allenact.base_abstractions.task import TaskSampler
-from allenact.utils.experiment_utils import TrainingPipeline, Builder
+from allenact.utils.experiment_utils import Builder, TrainingPipeline
 from allenact.utils.system import get_logger
 from allenact.utils.viz_utils import VizSuite
 
@@ -310,4 +309,8 @@ class ExperimentConfig(metaclass=FrozenClassVariables):
         See `ExperimentConfig.train_task_sampler_args` for parameter
         definitions.
         """
+        raise NotImplementedError()
+
+    def make_task_param_controller_fn(self):
+        """Create the task sampler parameter controller."""
         raise NotImplementedError()

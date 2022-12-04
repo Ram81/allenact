@@ -61,13 +61,13 @@ class MetricsEngineSensor(abc.ABC):
         metrics: current training or validation metrics
         """
         info = {"metrics": {}}
-        if self.reset_on_last_step:
-            get_logger().info(
-                "\n\nAggregated metrics after reset: {}, {}".format(
-                    self.aggregated_task_metrics.means(),
-                    [(x["success"], x["spl"]) for x in engine.single_process_metrics],
-                )
-            )
+        # if self.reset_on_last_step:
+        #     get_logger().info(
+        #         "\n\nAggregated metrics after reset: {}, {}".format(
+        #             self.aggregated_task_metrics.means(),
+        #             [(x["success"], x["spl"]) for x in engine.single_process_metrics],
+        #         )
+        #     )
 
         single_process_metrics = engine.single_process_metrics
         for single_task_metrics_dict in single_process_metrics:
@@ -80,11 +80,11 @@ class MetricsEngineSensor(abc.ABC):
 
         info["metrics"] = self.aggregated_task_metrics.means()
         if self.reset_on_last_step:
-            get_logger().info(
-                "\n\nAggregated metrics after reset: {}".format(
-                    self.aggregated_task_metrics.means()
-                )
-            )
+            # get_logger().info(
+            #     "\n\nAggregated metrics after reset: {}".format(
+            #         self.aggregated_task_metrics.means()
+            #     )
+            # )
             self.reset_on_last_step = False
         return info
 

@@ -17,12 +17,12 @@ import torch.distributions  # type: ignore
 import torch.multiprocessing as mp  # type: ignore
 import torch.nn as nn
 import torch.optim as optim
-from allenact.algorithms.onpolicy_sync.misc import TrackingInfo, TrackingInfoType
+from allenact.algorithms.onpolicy_sync.misc import (TrackingInfo,
+                                                    TrackingInfoType)
 from allenact.base_abstractions.sensor import Sensor
 from allenact.utils.misc_utils import str2bool
 from allenact.utils.model_utils import md5_hash_of_state_dict
 from allenact.utils.sensor_utils import MetricsEngineSensor
-
 # noinspection PyProtectedMember
 from torch._C._distributed_c10d import ReduceOp
 
@@ -32,40 +32,27 @@ try:
 except (ImportError, ModuleNotFoundError):
     raise ImportError("`_LRScheduler` was not found in `torch.optim.lr_scheduler`")
 
-from allenact.algorithms.onpolicy_sync.losses.abstract_loss import (
-    AbstractActorCriticLoss,
-)
+from allenact.algorithms.onpolicy_sync.losses.abstract_loss import \
+    AbstractActorCriticLoss
 from allenact.algorithms.onpolicy_sync.policy import ActorCriticModel
-from allenact.algorithms.onpolicy_sync.storage import (
-    ExperienceStorage,
-    MiniBatchStorageMixin,
-    RolloutStorage,
-    StreamingStorageMixin,
-)
+from allenact.algorithms.onpolicy_sync.storage import (ExperienceStorage,
+                                                       MiniBatchStorageMixin,
+                                                       RolloutStorage,
+                                                       StreamingStorageMixin)
 from allenact.algorithms.onpolicy_sync.vector_sampled_tasks import (
-    COMPLETE_TASK_CALLBACK_KEY,
-    COMPLETE_TASK_METRICS_KEY,
-    SingleProcessVectorSampledTasks,
-    VectorSampledTasks,
-)
+    COMPLETE_TASK_CALLBACK_KEY, COMPLETE_TASK_METRICS_KEY,
+    SingleProcessVectorSampledTasks, VectorSampledTasks)
 from allenact.base_abstractions.distributions import TeacherForcingDistr
-from allenact.base_abstractions.experiment_config import ExperimentConfig, MachineParams
-from allenact.base_abstractions.misc import (
-    ActorCriticOutput,
-    GenericAbstractLoss,
-    Memory,
-    RLStepResult,
-)
+from allenact.base_abstractions.experiment_config import (ExperimentConfig,
+                                                          MachineParams)
+from allenact.base_abstractions.misc import (ActorCriticOutput,
+                                             GenericAbstractLoss, Memory,
+                                             RLStepResult)
 from allenact.utils import spaces_utils as su
-from allenact.utils.experiment_utils import (
-    LoggingPackage,
-    PipelineStage,
-    ScalarMeanTracker,
-    StageComponent,
-    TrainingPipeline,
-    set_deterministic_cudnn,
-    set_seed,
-)
+from allenact.utils.experiment_utils import (LoggingPackage, PipelineStage,
+                                             ScalarMeanTracker, StageComponent,
+                                             TrainingPipeline,
+                                             set_deterministic_cudnn, set_seed)
 from allenact.utils.system import get_logger
 from allenact.utils.tensor_utils import batch_observations, detach_recursively
 from allenact.utils.viz_utils import VizSuite
@@ -285,6 +272,7 @@ class OnPolicyRLEngine(object):
         self.metrics_engine_sensor: MetricsEngineSensor = MetricsEngineSensor(
             reset_interval=self.config.metrics_accumulation_interval
         )
+        self.task_param_controller = config.make_task_param_controller_fn()
 
     @property
     def vector_tasks(
@@ -512,6 +500,10 @@ class OnPolicyRLEngine(object):
             actions = distr.sample() if not self.deterministic_agents else distr.mode()
 
         return actions, actor_critic_output, memory, agent_input["observations"]
+
+    def get_task_sampler_constraints(self):
+
+        pass
 
     @staticmethod
     def _active_memory(memory, keep):
@@ -1675,11 +1667,13 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 self.training_pipeline.total_steps - self.last_log >= self.log_interval
                 or self.training_pipeline.current_stage.is_complete
             ):
-                # Aggregate metrics using engine sensor
-                self.metrics_engine_sensor(
-                    engine=self,
-                    total_steps=self.training_pipeline.total_steps,
-                )
+                # # Aggregate metrics using engine sensor
+                # self.metrics_engine_sensor(
+                #     engine=self,
+                #     total_steps=self.training_pipeline.total_steps,
+                # )
+                self.task_param_controller.record_metrics(self.single_process_metrics)
+
                 self.aggregate_and_send_logging_package(
                     tracking_info_list=self.tracking_info_list
                 )
@@ -1702,19 +1696,27 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 % cur_stage_training_settings.advance_scene_rollout_period
                 == 0
             ):
-                current_aggregated_metrics = self.metrics_engine_sensor.means()
-                # Reset engine metrics sensor after aggregating metrics
-                self.metrics_engine_sensor.reset(self.training_pipeline.total_steps)
+                # current_aggregated_metrics = self.task_param_controller.means()
+                # # Reset engine metrics sensor after aggregating metrics
+                # self.metrics_engine_sensor.reset(self.training_pipeline.total_steps)
+                task_sampler_constraints = (
+                    self.task_param_controller.next_task_parameters(
+                        total_steps=self.training_pipeline.total_steps
+                    )
+                )
+
                 get_logger().info(
                     f"[{self.mode} worker {self.worker_id}] Force advance"
                     f" tasks with {self.training_pipeline.rollout_count} rollouts"
                 )
                 get_logger().info(
-                    f"[{self.mode} worker {self.worker_id}] Train metrics at logging {current_aggregated_metrics}"
+                    f"[{self.mode} worker {self.worker_id}] Train metrics at logging {task_sampler_constraints}"
                 )
                 try:
                     self.vector_tasks.next_task(
-                        force_advance_scene=True, metrics=current_aggregated_metrics
+                        force_advance_scene=True,
+                        metrics=None,
+                        task_sampler_constraints=task_sampler_constraints,
                     )
                 except (TimeoutError, EOFError) as e:
                     if (
