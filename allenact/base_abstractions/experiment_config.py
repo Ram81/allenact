@@ -314,3 +314,7 @@ class ExperimentConfig(metaclass=FrozenClassVariables):
     def make_task_param_controller_fn(self):
         """Create the task sampler parameter controller."""
         raise NotImplementedError()
+
+    def create_task_setter(self) -> str:
+        """Creates task setter model."""
+        raise NotImplementedError()

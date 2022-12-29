@@ -177,7 +177,9 @@ class OnPolicyRLEngine(object):
 
         self.sensor_preprocessor_graph = None
         self.actor_critic: Optional[ActorCriticModel] = None
+        print("Num samplers: {}".format(self.num_samplers))
         if self.num_samplers > 0:
+            print("Set up actor critic....")
             create_model_kwargs = {}
             if self.machine_params.sensor_preprocessor_graph is not None:
                 self.sensor_preprocessor_graph = (
@@ -267,11 +269,6 @@ class OnPolicyRLEngine(object):
         self.single_process_metrics: List = []
         self.single_process_task_callback_data: List = []
 
-        # Engine sensors
-        # TODO: Make it configurable from ExperimentConfig
-        self.metrics_engine_sensor: MetricsEngineSensor = MetricsEngineSensor(
-            reset_interval=self.config.metrics_accumulation_interval
-        )
         self.task_param_controller = config.make_task_param_controller_fn()
 
     @property
@@ -500,10 +497,6 @@ class OnPolicyRLEngine(object):
             actions = distr.sample() if not self.deterministic_agents else distr.mode()
 
         return actions, actor_critic_output, memory, agent_input["observations"]
-
-    def get_task_sampler_constraints(self):
-
-        pass
 
     @staticmethod
     def _active_memory(memory, keep):
@@ -1667,11 +1660,7 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 self.training_pipeline.total_steps - self.last_log >= self.log_interval
                 or self.training_pipeline.current_stage.is_complete
             ):
-                # # Aggregate metrics using engine sensor
-                # self.metrics_engine_sensor(
-                #     engine=self,
-                #     total_steps=self.training_pipeline.total_steps,
-                # )
+                # Aggregate metrics using engine sensor
                 self.task_param_controller.record_metrics(self.single_process_metrics)
 
                 self.aggregate_and_send_logging_package(
@@ -1696,9 +1685,7 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 % cur_stage_training_settings.advance_scene_rollout_period
                 == 0
             ):
-                # current_aggregated_metrics = self.task_param_controller.means()
-                # # Reset engine metrics sensor after aggregating metrics
-                # self.metrics_engine_sensor.reset(self.training_pipeline.total_steps)
+                # Reset engine metrics sensor after aggregating metrics
                 task_sampler_constraints = (
                     self.task_param_controller.next_task_parameters(
                         total_steps=self.training_pipeline.total_steps
