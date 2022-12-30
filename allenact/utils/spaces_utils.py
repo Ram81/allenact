@@ -24,7 +24,7 @@ def flatdim(space):
     if isinstance(space, gym.Box):
         return int(np.prod(space.shape))
     elif isinstance(space, gym.Discrete):
-        return space.n  # we do not expand to one-hot
+        return 1  # we do not expand to one-hot
     elif isinstance(space, gym.Tuple):
         return int(sum([flatdim(s) for s in space.spaces]))
     elif isinstance(space, gym.Dict):
@@ -45,9 +45,6 @@ def flatten(space, torch_x):
         else:
             return torch_x.view(torch_x.shape + (-1,))
     elif isinstance(space, gym.Discrete):
-        # Handle case for continuous actions
-        if isinstance(torch_x, torch.Tensor) and len(torch_x.shape) == 3:
-            return torch_x
         # Assume tensor input does NOT contain a dimension for action
         if isinstance(torch_x, torch.Tensor):
             return torch_x.unsqueeze(-1)
@@ -74,11 +71,7 @@ def unflatten(space, torch_x):
     if isinstance(space, gym.Box):
         return torch_x.view(torch_x.shape[:-1] + space.shape).float()
     elif isinstance(space, gym.Discrete):
-        if torch_x.shape[-1] == 1:
-            res = torch_x.view(torch_x.shape[:-1] + space.shape).long()
-        else:
-            # Corner case to handle continous actions
-            res = torch_x
+        res = torch_x.view(torch_x.shape[:-1] + space.shape).long()
         return res if len(res.shape) > 0 else res.item()
     elif isinstance(space, gym.Tuple):
         dims = [flatdim(s) for s in space.spaces]
