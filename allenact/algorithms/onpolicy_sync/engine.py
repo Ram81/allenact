@@ -109,6 +109,7 @@ class OnPolicyRLEngine(object):
         max_sampler_processes_per_worker: Optional[int] = None,
         initial_model_state_dict: Optional[Union[Dict[str, Any], int]] = None,
         try_restart_after_task_error: bool = False,
+        setter_metrics_dir: str = "",
         **kwargs,
     ):
         """Initializer.
@@ -269,7 +270,7 @@ class OnPolicyRLEngine(object):
         self.single_process_metrics: List = []
         self.single_process_task_callback_data: List = []
 
-        self.task_param_controller = config.make_task_param_controller_fn()
+        self.task_param_controller = config.make_task_param_controller_fn(setter_metrics_dir=setter_metrics_dir, worker_id=worker_id)
 
     @property
     def vector_tasks(
@@ -1685,26 +1686,13 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 % cur_stage_training_settings.advance_scene_rollout_period
                 == 0
             ):
-                # Reset engine metrics sensor after aggregating metrics
-                task_sampler_constraints = (
-                    self.task_param_controller.next_task_parameters(
-                        total_steps=self.training_pipeline.total_steps
-                    )
-                )
 
                 get_logger().info(
                     f"[{self.mode} worker {self.worker_id}] Force advance"
                     f" tasks with {self.training_pipeline.rollout_count} rollouts"
                 )
-                get_logger().info(
-                    f"[{self.mode} worker {self.worker_id}] Train metrics at logging {task_sampler_constraints}"
-                )
                 try:
-                    self.vector_tasks.next_task(
-                        force_advance_scene=True,
-                        metrics=None,
-                        task_sampler_constraints=task_sampler_constraints,
-                    )
+                    self.vector_tasks.next_task(force_advance_scene=True)
                 except (TimeoutError, EOFError) as e:
                     if (
                         not self.try_restart_after_task_error
@@ -1728,6 +1716,38 @@ class OnPolicyTrainer(OnPolicyRLEngine):
                 get_logger().info(
                     f"[{self.mode} worker {self.worker_id}] Resetting vector task"
                 )
+
+                # Setter observations
+                task_setter_observations = self.vector_tasks.get_setter_observations()
+
+                for env_id, obs in enumerate(task_setter_observations):
+                    d = {k: len(v) for k, v in obs["initial_dtg"].items()}
+                    d = list(d.keys())
+                    tg_objs = obs["target_objects_in_scene"]
+                    print(
+                        "[Process {}] House id: {} Num obj: {}/{}".format(
+                            env_id, obs["house_id"], len(d), len(tg_objs)
+                        )
+                    )
+
+                # Reset engine metrics sensor after aggregating metrics
+                task_sampler_constraints = (
+                    self.task_param_controller.next_task_parameters(
+                        total_steps=self.training_pipeline.total_steps,
+                        observations=task_setter_observations,
+                    )
+                )
+                if task_sampler_constraints is not None:
+                    get_logger().info(
+                        f"[{self.mode} worker {self.worker_id}] Train metrics at logging {len(task_sampler_constraints)}"
+                    )
+
+                    # Set task constraints post scene switch
+                    for env_id in range(len(task_sampler_constraints.keys())):
+                        self.vector_tasks.next_task_at(
+                            env_id,
+                            task_sampler_constraints=task_sampler_constraints[env_id],
+                        )
 
                 self.initialize_storage_and_viz(
                     storage_to_initialize=list(uuid_to_storage.values())

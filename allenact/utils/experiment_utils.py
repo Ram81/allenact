@@ -5,37 +5,21 @@ import copy
 import numbers
 import random
 from collections import OrderedDict, defaultdict
-from typing import (
-    Callable,
-    NamedTuple,
-    Dict,
-    Any,
-    Union,
-    Iterator,
-    Optional,
-    List,
-    cast,
-    Sequence,
-    TypeVar,
-    Generic,
-    Tuple,
-)
+from typing import (Any, Callable, Dict, Generic, Iterator, List, NamedTuple,
+                    Optional, Sequence, Tuple, TypeVar, Union, cast)
 
 import attr
 import numpy as np
 import torch
 import torch.optim as optim
-
-from allenact.algorithms.offpolicy_sync.losses.abstract_offpolicy_loss import Memory
-from allenact.algorithms.onpolicy_sync.losses.abstract_loss import (
-    AbstractActorCriticLoss,
-)
-from allenact.algorithms.onpolicy_sync.storage import (
-    ExperienceStorage,
-    RolloutStorage,
-    RolloutBlockStorage,
-)
-from allenact.base_abstractions.misc import Loss, GenericAbstractLoss
+from allenact.algorithms.offpolicy_sync.losses.abstract_offpolicy_loss import \
+    Memory
+from allenact.algorithms.onpolicy_sync.losses.abstract_loss import \
+    AbstractActorCriticLoss
+from allenact.algorithms.onpolicy_sync.storage import (ExperienceStorage,
+                                                       RolloutBlockStorage,
+                                                       RolloutStorage)
+from allenact.base_abstractions.misc import GenericAbstractLoss, Loss
 from allenact.utils.misc_utils import prepare_locals_for_super
 from allenact.utils.system import get_logger
 
@@ -431,7 +415,10 @@ class EarlyStoppingCriterion(abc.ABC):
 
     @abc.abstractmethod
     def __call__(
-        self, stage_steps: int, total_steps: int, training_metrics: ScalarMeanTracker,
+        self,
+        stage_steps: int,
+        total_steps: int,
+        training_metrics: ScalarMeanTracker,
     ) -> bool:
         """Returns `True` if training should be stopped early.
 
@@ -451,7 +438,10 @@ class NeverEarlyStoppingCriterion(EarlyStoppingCriterion):
     """Implementation of `EarlyStoppingCriterion` which never stops early."""
 
     def __call__(
-        self, stage_steps: int, total_steps: int, training_metrics: ScalarMeanTracker,
+        self,
+        stage_steps: int,
+        total_steps: int,
+        training_metrics: ScalarMeanTracker,
     ) -> bool:
         return False
 
@@ -983,10 +973,12 @@ class TrainingPipeline:
             train_metrics is not None
             and self.current_stage.early_stopping_criterion is not None
         ):
-            self.current_stage.early_stopping_criterion_met = self.current_stage.early_stopping_criterion(
-                stage_steps=self.current_stage.steps_taken_in_stage,
-                total_steps=self.total_steps,
-                training_metrics=train_metrics,
+            self.current_stage.early_stopping_criterion_met = (
+                self.current_stage.early_stopping_criterion(
+                    stage_steps=self.current_stage.steps_taken_in_stage,
+                    total_steps=self.total_steps,
+                    training_metrics=train_metrics,
+                )
             )
         if self.current_stage.early_stopping_criterion_met:
             get_logger().debug(
@@ -1060,7 +1052,8 @@ class TrainingPipeline:
         for storage_uuid in storage_uuids_for_current_stage:
             if isinstance(self._named_storages[storage_uuid], Builder):
                 self._named_storages[storage_uuid] = cast(
-                    Builder["ExperienceStorage"], self._named_storages[storage_uuid],
+                    Builder["ExperienceStorage"],
+                    self._named_storages[storage_uuid],
                 )()
 
         return OrderedDict(

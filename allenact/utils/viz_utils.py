@@ -3,23 +3,13 @@ import json
 import os
 import sys
 from collections import defaultdict
-from typing import (
-    Dict,
-    Any,
-    Union,
-    Optional,
-    List,
-    Tuple,
-    Sequence,
-    Callable,
-    cast,
-    Set,
-)
+from typing import (Any, Callable, Dict, List, Optional, Sequence, Set, Tuple,
+                    Union, cast)
 
 import numpy as np
-
 from allenact.utils.experiment_utils import Builder
-from allenact.utils.tensor_utils import SummaryWriter, tile_images, process_video
+from allenact.utils.tensor_utils import (SummaryWriter, process_video,
+                                         tile_images)
 
 try:
     # Tensorflow not installed for testing
@@ -46,10 +36,9 @@ try:
 except ImportError as _:
     pass
 
-import matplotlib.pyplot as plt
-import matplotlib.markers as markers
 import cv2
-
+import matplotlib.markers as markers
+import matplotlib.pyplot as plt
 from allenact.utils.system import get_logger
 
 
@@ -334,7 +323,9 @@ class AgentViewViz(AbstractViz):
         **other_base_kwargs,
     ):
         super().__init__(
-            label, vector_task_sources=[vector_task_source], **other_base_kwargs,
+            label,
+            vector_task_sources=[vector_task_source],
+            **other_base_kwargs,
         )
         self.max_clip_length = max_clip_length
         self.max_video_length = max_video_length
@@ -388,7 +379,9 @@ class AgentViewViz(AbstractViz):
             vid = self.make_vid(images)
             if vid is not None:
                 log_writer.add_vid(
-                    f"{self.mode}/{self.label}_group{page}", vid, global_step=num_steps,
+                    f"{self.mode}/{self.label}_group{page}",
+                    vid,
+                    global_step=num_steps,
                 )
 
     @staticmethod
@@ -767,7 +760,7 @@ class VizSuite(AbstractViz):
                 force=self.force_episodes_and_max_episodes_in_group,
             )
 
-            if isinstance(v, AgentViewViz):
+            if isinstance(v, AgentViewViz) or hasattr(v, "max_render_size"):
                 self.max_render_size = v.max_render_size
 
         get_logger().info("Logging labels {}".format(labels))
@@ -907,7 +900,9 @@ class VizSuite(AbstractViz):
 
                 # Select latest step
                 res = res.narrow(
-                    dim=0, start=rollout_step, length=1,  # step dimension
+                    dim=0,
+                    start=rollout_step,
+                    length=1,  # step dimension
                 )  # 1 x ... x sampler x ...
 
                 # get_logger().debug("basic collect h {}".format(res[..., 0]))

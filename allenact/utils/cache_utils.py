@@ -1,5 +1,5 @@
 import math
-from typing import Dict, Any, Union, Callable, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from allenact.utils.system import get_logger
 

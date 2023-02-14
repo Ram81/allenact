@@ -25,28 +25,20 @@ import filelock
 import numpy as np
 import torch
 import torch.multiprocessing as mp
-from allenact.algorithms.onpolicy_sync.engine import (
-    TEST_MODE_STR,
-    TRAIN_MODE_STR,
-    VALID_MODE_STR,
-    OnPolicyInference,
-    OnPolicyRLEngine,
-    OnPolicyTrainer,
-)
+from allenact.algorithms.onpolicy_sync.engine import (TEST_MODE_STR,
+                                                      TRAIN_MODE_STR,
+                                                      VALID_MODE_STR,
+                                                      OnPolicyInference,
+                                                      OnPolicyRLEngine,
+                                                      OnPolicyTrainer)
 from allenact.base_abstractions.callbacks import Callback
-from allenact.base_abstractions.experiment_config import ExperimentConfig, MachineParams
+from allenact.base_abstractions.experiment_config import (ExperimentConfig,
+                                                          MachineParams)
 from allenact.base_abstractions.sensor import Sensor
-from allenact.utils.experiment_utils import (
-    LoggingPackage,
-    ScalarMeanTracker,
-    set_deterministic_cudnn,
-    set_seed,
-)
-from allenact.utils.misc_utils import (
-    NumpyJSONEncoder,
-    all_equal,
-    get_git_diff_of_project,
-)
+from allenact.utils.experiment_utils import (LoggingPackage, ScalarMeanTracker,
+                                             set_deterministic_cudnn, set_seed)
+from allenact.utils.misc_utils import (NumpyJSONEncoder, all_equal,
+                                       get_git_diff_of_project)
 from allenact.utils.model_utils import md5_hash_of_state_dict
 from allenact.utils.system import find_free_port, get_logger
 from allenact.utils.tensor_utils import SummaryWriter
@@ -518,6 +510,7 @@ class OnPolicyRunner(object):
                 distributed_preemption_threshold=self.distributed_preemption_threshold,
                 valid_on_initial_weights=valid_on_initial_weights,
                 try_restart_after_task_error=try_restart_after_task_error,
+                setter_metrics_dir=self.setter_metrics_path(),
             )
             train: BaseProcess = self.mp_ctx.Process(
                 target=self.train_loop,
@@ -754,6 +747,34 @@ class OnPolicyRunner(object):
             raise NotImplementedError
         if create_if_none:
             os.makedirs(folder, exist_ok=True)
+        return folder
+
+    def setter_metrics_path(
+        self, start_time_str: Optional[str] = None, create_if_none: bool = True
+    ):
+        path_parts = [
+            self.config.tag()
+            if self.extra_tag == ""
+            else os.path.join(self.config.tag(), self.extra_tag),
+            start_time_str or self.local_start_time_str,
+        ]
+        if self.save_dir_fmt == SaveDirFormat.NESTED:
+            folder = os.path.join(
+                self.output_dir,
+                *path_parts,
+                "setter_metrics",
+            )
+        elif self.save_dir_fmt == SaveDirFormat.FLAT:
+            folder = os.path.join(
+                self.output_dir,
+                "setter_metrics",
+                *path_parts,
+            )
+        else:
+            raise NotImplementedError
+        if create_if_none:
+            os.makedirs(folder, exist_ok=True)
+            os.makedirs(folder.replace("setter_metrics", "setter_plots"), exist_ok=True)
         return folder
 
     def log_writer_path(self, start_time_str: str) -> str:

@@ -4,29 +4,16 @@
 # LICENSE file in the root directory of this source tree.
 import abc
 import random
-from typing import (
-    Union,
-    List,
-    Dict,
-    Tuple,
-    Sequence,
-    cast,
-    Optional,
-    Callable,
-    Any,
-    Generator,
-)
+from typing import (Any, Callable, Dict, Generator, List, Optional, Sequence,
+                    Tuple, Union, cast)
 
+import allenact.utils.spaces_utils as su
 import gym
 import numpy as np
 import torch
-
-import allenact.utils.spaces_utils as su
-from allenact.algorithms.onpolicy_sync.policy import (
-    FullMemorySpecType,
-    ObservationType,
-    ActionType,
-)
+from allenact.algorithms.onpolicy_sync.policy import (ActionType,
+                                                      FullMemorySpecType,
+                                                      ObservationType)
 from allenact.base_abstractions.misc import Memory
 
 

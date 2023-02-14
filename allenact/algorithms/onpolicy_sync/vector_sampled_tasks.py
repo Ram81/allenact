@@ -10,31 +10,18 @@ from multiprocessing.connection import Connection
 from multiprocessing.context import BaseContext
 from multiprocessing.process import BaseProcess
 from threading import Thread
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterator,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import (Any, Callable, Dict, Generator, Iterator, List, Optional,
+                    Sequence, Set, Tuple, Union, cast)
 
 import numpy as np
-from gym.spaces.dict import Dict as SpaceDict
-from setproctitle import setproctitle as ptitle
-
 from allenact.base_abstractions.misc import RLStepResult
-from allenact.base_abstractions.sensor import SensorSuite, Sensor
+from allenact.base_abstractions.sensor import Sensor, SensorSuite
 from allenact.base_abstractions.task import TaskSampler
 from allenact.utils.misc_utils import partition_sequence
 from allenact.utils.system import get_logger
 from allenact.utils.tensor_utils import tile_images
+from gym.spaces.dict import Dict as SpaceDict
+from setproctitle import setproctitle as ptitle
 
 try:
     # Use torch.multiprocessing if we can.
@@ -63,6 +50,8 @@ RESET_COMMAND = "reset"
 SEED_COMMAND = "seed"
 PAUSE_COMMAND = "pause"
 RESUME_COMMAND = "resume"
+SETTER_OBSERVATIONS_COMMAND = "get_setter_observations"
+NEXT_SCENE_COMMAND = "next_scene"
 
 
 class DelaySignalHandling:
@@ -376,7 +365,9 @@ class VectorSampledTasks:
                     else:
                         connection_write_fn(
                             sp_vector_sampled_tasks.command_at(
-                                sampler_index=sampler_index, command=command, data=data,
+                                sampler_index=sampler_index,
+                                command=command,
+                                data=data,
                             )
                         )
                 else:
@@ -500,7 +491,29 @@ class VectorSampledTasks:
 
         List of observations for each of the unpaused tasks.
         """
-        return self.call(["get_observations"] * self.num_unpaused_tasks,)
+        return self.call(
+            ["get_observations"] * self.num_unpaused_tasks,
+        )
+
+    def get_setter_observations(self):
+        """Get setter observations for all unpaused tasks.
+
+        # Returns
+
+        List of observations for each of the unpaused tasks.
+        """
+        return self.command(commands=SETTER_OBSERVATIONS_COMMAND, data_list=None)
+
+    def next_scene(self, **kwargs):
+        """Get setter observations for all unpaused tasks.
+
+        # Returns
+
+        List of observations for each of the unpaused tasks.
+        """
+        return self.command(
+            commands=NEXT_SCENE_COMMAND, data_list=[kwargs] * self.num_unpaused_tasks
+        )
 
     def command_at(
         self, sampler_index: int, command: str, data: Optional[Any] = None
@@ -549,7 +562,7 @@ class VectorSampledTasks:
             data=(function_name, function_args),
         )
 
-    def next_task_at(self, sampler_index: int) -> List[RLStepResult]:
+    def next_task_at(self, sampler_index: int, **kwargs) -> List[RLStepResult]:
         """Move to the the next Task from the TaskSampler in index_process
         process in the vector.
 
@@ -563,7 +576,7 @@ class VectorSampledTasks:
         """
         return [
             self.command_at(
-                sampler_index=sampler_index, command=NEXT_TASK_COMMAND, data=None
+                sampler_index=sampler_index, command=NEXT_TASK_COMMAND, data=kwargs
             )
         ]
 
@@ -689,9 +702,9 @@ class VectorSampledTasks:
         for i in range(
             sampler_index + 1, len(self.sampler_index_to_process_ind_and_subprocess_ind)
         ):
-            other_process_and_sub_process_inds = self.sampler_index_to_process_ind_and_subprocess_ind[
-                i
-            ]
+            other_process_and_sub_process_inds = (
+                self.sampler_index_to_process_ind_and_subprocess_ind[i]
+            )
             if other_process_and_sub_process_inds[0] == process_ind:
                 other_process_and_sub_process_inds[1] -= 1
             else:
@@ -835,6 +848,19 @@ class VectorSampledTasks:
             return tile
         else:
             raise NotImplementedError
+
+    def render_custom(
+        self, mode: str = "top_down", *args, **kwargs
+    ) -> Union[np.ndarray, None, List[np.ndarray]]:
+        """Render observations from all Tasks in a tiled image or list of
+        images."""
+
+        images = self.command(
+            commands=RENDER_COMMAND,
+            data_list=[(args, {"mode": mode, **kwargs})] * self.num_unpaused_tasks,
+        )
+
+        return images
 
     @property
     def _valid_start_methods(self) -> Set[str]:
@@ -1069,6 +1095,17 @@ class SingleProcessVectorSampledTasks(object):
                     task_sampler.set_seed(data)
 
                     command, data = yield "done"
+
+                elif command == SETTER_OBSERVATIONS_COMMAND:
+                    if data is not None:
+                        observations = task_sampler.get_setter_observations(**data)
+                    else:
+                        observations = task_sampler.get_setter_observations()
+                    command, data = yield observations
+
+                elif command == NEXT_SCENE_COMMAND:
+                    task_sampler.next_scene(**data)
+
                 else:
                     raise NotImplementedError()
 
@@ -1140,9 +1177,11 @@ class SingleProcessVectorSampledTasks(object):
 
         List of observations for each of the unpaused tasks.
         """
-        return self.call(["get_observations"] * self.num_unpaused_tasks,)
+        return self.call(
+            ["get_observations"] * self.num_unpaused_tasks,
+        )
 
-    def next_task_at(self, index_process: int) -> List[RLStepResult]:
+    def next_task_at(self, index_process: int, **kwargs) -> List[RLStepResult]:
         """Move to the the next Task from the TaskSampler in index_process
         process in the vector.
 
@@ -1155,7 +1194,9 @@ class SingleProcessVectorSampledTasks(object):
         List of length one containing the observations the newly sampled task.
         """
         return [
-            self._vector_task_generators[index_process].send((NEXT_TASK_COMMAND, None))
+            self._vector_task_generators[index_process].send(
+                (NEXT_TASK_COMMAND, kwargs)
+            )
         ]
 
     def step_at(self, index_process: int, action: int) -> List[RLStepResult]:
@@ -1186,6 +1227,29 @@ class SingleProcessVectorSampledTasks(object):
         return [
             g.send((STEP_COMMAND, action))
             for g, action in zip(self._vector_task_generators, actions)
+        ]
+
+    def get_setter_observations(self):
+        """Get setter observations for all unpaused tasks.
+
+        # Returns
+
+        List of observations for each of the unpaused tasks.
+        """
+        return [
+            g.send((SETTER_OBSERVATIONS_COMMAND, None))
+            for g in self._vector_task_generators
+        ]
+
+    def next_scene(self, **kwargs):
+        """Get setter observations for all unpaused tasks.
+
+        # Returns
+
+        List of observations for each of the unpaused tasks.
+        """
+        return [
+            g.send((NEXT_SCENE_COMMAND, kwargs)) for g in self._vector_task_generators
         ]
 
     def reset_all(self):
