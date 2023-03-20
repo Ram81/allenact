@@ -110,6 +110,7 @@ class OnPolicyRLEngine(object):
         initial_model_state_dict: Optional[Union[Dict[str, Any], int]] = None,
         try_restart_after_task_error: bool = False,
         setter_metrics_dir: str = "",
+        setter_data_dir: str = "",
         **kwargs,
     ):
         """Initializer.
@@ -270,7 +271,9 @@ class OnPolicyRLEngine(object):
         self.single_process_metrics: List = []
         self.single_process_task_callback_data: List = []
 
-        self.task_param_controller = config.make_task_param_controller_fn(setter_metrics_dir=setter_metrics_dir, worker_id=worker_id)
+        self.task_param_controller = config.make_task_param_controller_fn(
+            setter_metrics_dir=setter_metrics_dir, setter_data_dir=setter_data_dir, worker_id=worker_id
+        )
 
     @property
     def vector_tasks(
@@ -1501,7 +1504,6 @@ class OnPolicyTrainer(OnPolicyRLEngine):
             step = -1
             while step < cur_stage_training_settings.num_steps - 1:
                 step += 1
-
                 try:
                     num_paused = self.collect_step_across_all_task_samplers(
                         rollout_storage_uuid=self.training_pipeline.rollout_storage_uuid,

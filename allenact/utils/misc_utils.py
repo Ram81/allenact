@@ -11,7 +11,7 @@ import urllib
 import urllib.request
 from collections import Counter
 from contextlib import contextmanager
-from typing import Sequence, List, Optional, Tuple, Hashable
+from typing import Sequence, List, Optional, Tuple, Hashable, Dict, Union
 
 import filelock
 import numpy as np
@@ -39,7 +39,8 @@ def multiprocessing_safe_download_file_from_url(url: str, save_path: str):
         if not os.path.isfile(save_path):
             get_logger().info(f"Downloading file from {url} to {save_path}.")
             urllib.request.urlretrieve(
-                url, save_path,
+                url,
+                save_path,
             )
         else:
             get_logger().debug(f"{save_path} exists - skipping download.")
@@ -125,7 +126,10 @@ def tensor_print_options(**print_opts):
 
 
 def md5_hash_str_as_int(to_hash: str):
-    return int(hashlib.md5(to_hash.encode()).hexdigest(), 16,)
+    return int(
+        hashlib.md5(to_hash.encode()).hexdigest(),
+        16,
+    )
 
 
 def get_git_diff_of_project() -> Tuple[str, str]:
@@ -331,3 +335,35 @@ def str2bool(v: str):
         return False
     else:
         raise ValueError(f"{v} cannot be converted to a bool")
+
+
+def _metrics_dict_is_empty(
+    single_task_metrics_dict: Dict[str, Union[float, int]]
+) -> bool:
+    return (
+        len(single_task_metrics_dict) == 0
+        or (
+            len(single_task_metrics_dict) == 1
+            and "task_info" in single_task_metrics_dict
+        )
+        or (
+            "success" in single_task_metrics_dict
+            and single_task_metrics_dict["success"] is None
+        )
+    )
+
+
+def extract_metrics(
+    task_metrics,
+    metrics_keys=["success", "spl", "dist_to_target", "total_reward"],
+):
+    if _metrics_dict_is_empty(task_metrics):
+        return None
+
+    current_task_metrics = {}
+    for k, v in task_metrics["task_info"]["setter_meta"].items():
+        current_task_metrics[k] = v
+
+    for k in metrics_keys:
+        current_task_metrics[k] = task_metrics[k]
+    return current_task_metrics
